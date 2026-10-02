@@ -92,4 +92,61 @@ class UserServiceTest {
 		assertNotEquals("p", captor.getValue().getPassword(),
 				"{noop} plaintext storage is forbidden");
 	}
+
+	@Test
+	@DisplayName("USR-04 [Plan-A] deleteByUsername existing -> deletes, returns true")
+	void delete_existing() {
+		User existing = new User();
+		existing.setUsername("orphan");
+		when(repository.findById("orphan")).thenReturn(Optional.of(existing));
+
+		boolean deleted = service.deleteByUsername("orphan");
+
+		assertTrue(deleted);
+		verify(repository).deleteById("orphan");
+	}
+
+	@Test
+	@DisplayName("UT-USR-004 [Plan-A/D17] compensation delete emits WARN audit log with COMPENSATION marker + username")
+	void delete_auditLog() {
+		ch.qos.logback.classic.Logger logger =
+				(ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(UserServiceImpl.class);
+		ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender =
+				new ch.qos.logback.core.read.ListAppender<>();
+		appender.start();
+		logger.addAppender(appender);
+		try {
+			User existing = new User();
+			existing.setUsername("audit-orphan");
+			when(repository.findById("audit-orphan")).thenReturn(Optional.of(existing));
+
+			service.deleteByUsername("audit-orphan");
+
+			boolean found = appender.list.stream().anyMatch(e ->
+					e.getLevel() == ch.qos.logback.classic.Level.WARN
+					&& e.getFormattedMessage().contains("COMPENSATION")
+					&& e.getFormattedMessage().contains("audit-orphan"));
+			assertTrue(found, "WARN audit log with COMPENSATION marker and username required (D17 traceability)");
+		} finally {
+			logger.detachAppender(appender);
+		}
+	}
+
+	@Test
+	@DisplayName("USR-05 [Plan-A] deleteByUsername missing -> idempotent no-op, returns false, no delete")
+	void delete_missing_idempotent() {
+		when(repository.findById("ghost")).thenReturn(Optional.empty());
+
+		boolean deleted = service.deleteByUsername("ghost");
+
+		assertFalse(deleted);
+		verify(repository, never()).deleteById(anyString());
+	}
+
+	@Test
+	@DisplayName("USR-06 [Plan-A] deleteByUsername blank -> IllegalArgumentException (Assert semantics)")
+	void delete_blank() {
+		assertThrows(IllegalArgumentException.class, () -> service.deleteByUsername(""));
+		assertThrows(IllegalArgumentException.class, () -> service.deleteByUsername(null));
+	}
 }

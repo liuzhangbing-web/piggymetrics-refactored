@@ -49,6 +49,12 @@ feign:
   sentinel:
     enabled: true   # was: feign.hystrix.enabled=true -> Sentinel circuit breaking (M5)
 
+# ---- Plan-A 幂等补偿+对账自愈配置（默认值可被 Nacos 覆盖）----
+compensation:
+  reconcile-interval-ms: 30000        # 对账 Job 间隔
+  reconcile-initial-delay-ms: 20000   # 启动后延迟，避开服务注册窗口
+  max-attempts: 5                     # 任务最大重试次数，超限标记 FAILED 并输出告警日志
+
 logging:
   pattern:
     level: "%5p [${spring.application.name:},%X{traceId:-},%X{spanId:-}]"

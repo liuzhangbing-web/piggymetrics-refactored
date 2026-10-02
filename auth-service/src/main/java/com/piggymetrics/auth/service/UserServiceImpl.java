@@ -34,4 +34,17 @@ public class UserServiceImpl implements UserService {
 
 		log.info("new user has been created: {}", user.getUsername());
 	}
+
+	@Override
+	public boolean deleteByUsername(String username) {
+		Assert.hasLength(username, "username must have length");
+		Optional<User> existing = repository.findById(username);
+		if (existing.isEmpty()) {
+			// idempotent: nothing to delete
+			return false;
+		}
+		repository.deleteById(username);
+		log.warn("COMPENSATION: user {} deleted (orphan cleanup, service-to-service only)", username);
+		return true;
+	}
 }
