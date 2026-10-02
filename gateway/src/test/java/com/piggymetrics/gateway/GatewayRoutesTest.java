@@ -41,6 +41,9 @@ class GatewayRoutesTest {
 	@Autowired
 	private Environment environment;
 
+	@Autowired
+	private org.springframework.context.ConfigurableApplicationContext applicationContext;
+
 	private Map<String, RouteDefinition> routesById() {
 		List<RouteDefinition> defs = routeDefinitionLocator.getRouteDefinitions()
 				.collectList().block(Duration.ofSeconds(10));
@@ -100,5 +103,31 @@ class GatewayRoutesTest {
 		assertEquals("20s",
 				environment.getProperty("spring.cloud.gateway.server.webflux.httpclient.response-timeout"),
 				"response timeout must stay 20s (legacy zuul.host.socket-timeout)");
+	}
+
+	// ================= dp-spec FT-GW-003/004 =================
+
+	@Test
+	@DisplayName("FT-GW-003 [RED-equiv] undeclared path -> 404 (zuul.ignoredServices='*' equivalence: only declared routes exist)")
+	void undeclaredPathNotFound() {
+		org.springframework.test.web.reactive.server.WebTestClient client =
+				org.springframework.test.web.reactive.server.WebTestClient
+						.bindToApplicationContext(applicationContext).build();
+		client.get().uri("/foo/bar")
+				.exchange()
+				.expectStatus().isNotFound();
+	}
+
+	@Test
+	@DisplayName("FT-GW-004 [RED] no route removes request headers -> Authorization passes through (legacy sensitiveHeaders=empty equivalence)")
+	void authorizationHeaderNotStripped() {
+		// Real pass-through is proven live by verify-main-compose.py (every authenticated
+		// call flows Bearer tokens through the gateway). This slice test LOCKS the config:
+		// no RemoveRequestHeader / DedupeResponseHeader style filters on any route.
+		routesById().values().forEach(def ->
+				assertTrue(def.getFilters().stream()
+								.noneMatch(f -> f.getName() != null
+										&& f.getName().toLowerCase().contains("removerequestheader")),
+						def.getId() + " must not strip request headers (legacy zuul sensitiveHeaders was empty)"));
 	}
 }

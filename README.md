@@ -5,7 +5,7 @@
 ![Spring Cloud](https://img.shields.io/badge/Spring%20Cloud-2025.0.0-blue)
 ![Spring Cloud Alibaba](https://img.shields.io/badge/Spring%20Cloud%20Alibaba-2025.0.0.0-blueviolet)
 ![Nacos](https://img.shields.io/badge/Nacos-3.0.3-blue)
-![Tests](https://img.shields.io/badge/tests-75%2F75%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-87%2F87%20passing-brightgreen)
 ![E2E](https://img.shields.io/badge/E2E%20chain-31%2F31%20passing-brightgreen)
 
 > 将经典微服务教学项目 **Piggymetrics**（Spring Cloud Netflix / Boot 2.0.3 / JDK 8）按**银行金融生产标准**整体重构为 **Spring Cloud Alibaba 现代技术栈**的完整示范工程：注册/配置中心 Nacos 3.0.3、熔断限流 Sentinel、JWT 无状态鉴权（Spring Authorization Server）、分布式链路追踪（Jaeger 联调 / SkyWalking 生产）、全容器化部署，并附带金融级分阶段交付流程（审计 → 重构 → 测试用例 → 测试执行 → 文档）的完整过程资产。
@@ -139,7 +139,7 @@ piggymetrics-refactored/
 ├── skywalking/                      # 告警规则 alarm-settings.yml + OAP 外挂 JDBC 驱动
 ├── integration-test/                # IT 编排、rates-mock、31 断言联调脚本
 ├── mongodb/                         # Mongo 初始化 dump（demo 账户/黄金数据基线）
-├── docs/                            # ★ 17 份分阶段交付过程文档（审计→重构→测试→部署→追踪）
+├── docs/                            # ★ 全套分阶段交付过程文档（审计→重构→测试→部署→追踪）+ docs/dp/ 测试用例设计
 ├── verify-main-compose.py           # 全链路 31 项自动化断言
 ├── verify-skywalking.py             # SkyWalking 7 项验证
 ├── stress-gateway.py                # 网关四阶段压测（基线/限流/降级/traceId）
@@ -266,10 +266,12 @@ SkyWalking 侧含金融告警规则（`skywalking/alarm-settings.yml`：SLA<99% 
 
 | 层级 | 数量 | 说明 |
 |---|---|---|
-| 单元/切片测试 | **75/75 绿** | `mvn test`（Boot3 测试切片、SAS 自定义 grant、Mongo 转换器） |
-| 真实 Mongo 集成测试 | 含于 75 | `TEST_MONGO_URI` 注入真实库，非 Testcontainers mock |
+| 单元/切片测试 | **87/87 绿** | `mvn test`（Boot3 测试切片、SAS 自定义 grant、Mongo 转换器、方案A 补偿） |
+| 真实 Mongo 集成测试 | 含于 87 | `TEST_MONGO_URI` 注入真实库，非 Testcontainers mock |
+| **测试用例设计** | **124 用例** | [`docs/dp/`](docs/dp/) 四层金字塔（单元44/功能49/全链路16/系统15，🔴 红线 50 条） |
 | **金额黄金数据测试** | 金融红线 | Python Fractions 精确复刻旧 BigDecimal 语义生成黄金值，`compareTo==0` 逐分断言 |
 | 全链路 E2E | **31/31 绿** | `verify-main-compose.py`：鉴权等价/越权拦截/金额精度/降级/幂等/BCrypt 非明文 |
+| 补偿自愈 E2E | **11/11** | `verify-compensation-e2e.py`：孤儿用户+统计漂移自愈（方案A） |
 | 冷启动重建验证 | 31/31 | 第 2 轮从空环境 build+up 复验（见文档索引） |
 
 ```bash
@@ -286,18 +288,20 @@ python3 verify-main-compose.py   # 需全栈已启动
 
 ## 过程文档索引
 
-完整金融级分阶段交付过程资产（17 份）已随仓库归档于 [`docs/`](docs/)，总索引见 [docs/README.md](docs/README.md)：
+完整金融级分阶段交付过程资产已随仓库归档于 [`docs/`](docs/)，总索引见 [docs/README.md](docs/README.md)：
 
 | 阶段 | 文档 |
 |---|---|
 | 1 审计 | [阶段1-架构审计与升级方案报告](docs/阶段1-架构审计与升级方案报告.md)（风险分级 L/M/H，红线标记） |
 | 2 重构 | [阶段2-重构交付报告](docs/阶段2-重构交付报告.md)（等价迁移记录、路由实测） |
 | 3 测试设计 | [阶段3-测试用例设计文档](docs/阶段3-测试用例设计文档.md)（51 用例，金融红线清单） |
-| 4 测试执行 | [阶段4-测试执行报告](docs/阶段4-测试执行报告.md)（75/75，bug 修复记录） |
+| 4 测试执行 | [阶段4-测试执行报告](docs/阶段4-测试执行报告.md)（75/75，方案A后增至 87/87，bug 修复记录） |
 | 5 文档 | [重构后架构文档](docs/阶段5-重构后架构文档.md) / [开发文档](docs/阶段5-开发文档.md) / [部署文档](docs/阶段5-部署文档.md) + [回滚方案](docs/回滚方案.md)（L0-L3 分级） |
 | 联调 | [全链路联调报告](docs/全链路联调报告.md) / [主compose联调报告](docs/主compose全链路联调报告.md)（[第2轮冷启动](docs/主compose全链路联调报告-第2轮冷启动.md)） / [网关压测与Sentinel验证](docs/网关压测与Sentinel验证报告.md) |
 | 配置 | [Nacos配置同步与拉取验证报告](docs/Nacos配置同步与拉取验证报告.md) |
 | 可观测 | [Jaeger落地报告(方案B)](docs/链路追踪落地报告-Jaeger方案B.md) / [SkyWalking接入指南(方案C)](docs/生产链路追踪-SkyWalking接入指南.md) / [SkyWalking预发部署验证报告](docs/SkyWalking预发部署验证报告.md) |
+| 数据一致性 | [MongoDB真实调用与分布式事务分析](docs/阶段1-MongoDB真实调用与分布式事务分析报告.md)（Mongo 落地验证 9/9 + Seata 适用性评估）/ [方案A幂等补偿对账自愈交付报告](docs/阶段2-方案A幂等补偿对账自愈交付报告.md)（孤儿用户+统计漂移两缺口自愈，单测87/87·E2E11/11·回归31/31） |
+| 测试设计 | [四层测试用例设计](docs/dp/README.md)（单元44/功能49/全链路16/系统15，共124用例·🔴红线50，GitHub 规范） |
 
 ## 已知限制
 

@@ -15,9 +15,12 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -80,5 +83,53 @@ class UserControllerTest {
 	void currentUser() throws Exception {
 		mockMvc.perform(get("/users/current").with(jwt().jwt(j -> j.subject("test-user"))))
 				.andExpect(status().isOk());
+	}
+
+	// ================= Plan-A compensation endpoint (FT-AUTH-012..015) =================
+
+	@Test
+	@DisplayName("FT-AUTH-012 [RED] DELETE /users/{username} with SCOPE_server -> 200, deleteByUsername invoked")
+	void deleteUserWithServerScope() throws Exception {
+		when(userService.deleteByUsername("orphan")).thenReturn(true);
+
+		mockMvc.perform(delete("/users/orphan")
+						.with(jwt().authorities(new SimpleGrantedAuthority("SCOPE_server"))))
+				.andExpect(status().isOk());
+		verify(userService).deleteByUsername("orphan");
+	}
+
+	@Test
+	@DisplayName("FT-AUTH-013 [RED] DELETE /users/{username} with scope=ui -> 403, service untouched")
+	void deleteUserWithUiScopeForbidden() throws Exception {
+		mockMvc.perform(delete("/users/orphan")
+						.with(jwt().authorities(new SimpleGrantedAuthority("SCOPE_ui"))))
+				.andExpect(status().isForbidden());
+		verify(userService, never()).deleteByUsername(anyString());
+	}
+
+	@Test
+	@DisplayName("FT-AUTH-014 [RED] DELETE /users/{username} anonymous -> 401")
+	void deleteUserAnonymous() throws Exception {
+		mockMvc.perform(delete("/users/orphan"))
+				.andExpect(status().isUnauthorized());
+		verify(userService, never()).deleteByUsername(anyString());
+	}
+
+	@Test
+	@DisplayName("FT-AUTH-015 [RED] DELETE and create share the identical @PreAuthorize expression (anti-relaxation lock)")
+	void deleteAndCreatePreAuthorizeIdentical() throws Exception {
+		java.lang.reflect.Method create = UserController.class
+				.getMethod("createUser", User.class);
+		java.lang.reflect.Method delete = UserController.class
+				.getMethod("deleteUser", String.class);
+		org.springframework.security.access.prepost.PreAuthorize createAnn =
+				create.getAnnotation(org.springframework.security.access.prepost.PreAuthorize.class);
+		org.springframework.security.access.prepost.PreAuthorize deleteAnn =
+				delete.getAnnotation(org.springframework.security.access.prepost.PreAuthorize.class);
+		assertNotNull(createAnn, "createUser must keep @PreAuthorize");
+		assertNotNull(deleteAnn, "deleteUser must keep @PreAuthorize");
+		assertEquals(createAnn.value(), deleteAnn.value(),
+				"compensation delete must never be less strict than create (red-line lock)");
+		assertEquals("hasAuthority('SCOPE_server')", deleteAnn.value());
 	}
 }
