@@ -19,6 +19,7 @@
 - [技术栈（旧 → 新）](#技术栈旧--新)
 - [系统架构](#系统架构)
 - [模块说明](#模块说明)
+- [仓库目录结构](#仓库目录结构)
 - [业务接口](#业务接口)
 - [快速开始（部署演示）](#快速开始部署演示)
 - [链路追踪](#链路追踪)
@@ -61,7 +62,7 @@ graph TB
 
     subgraph Services["业务服务（JWT 资源服务器）"]
         AUTH["auth-service :5000<br/>Spring Authorization Server<br/>用户/OAuth2/JWT 签发"]
-        ACCT["account-service :6001<br/>账务：开户/收支/储蓄"]
+        ACCT["account-service :6000<br/>账务：开户/收支/储蓄"]
         STAT["statistics-service :7000<br/>统计：汇率换算/DataPoint"]
         NOTI["notification-service :8000<br/>通知：邮件提醒/备份 cron"]
     end
@@ -114,11 +115,37 @@ graph TB
 |---|---|---|---|
 | `gateway` | 4000 | 统一入口、路由转发、Sentinel 网关流控 | Zuul 路由 1:1 等价迁移（stripPrefix 语义、ignoredServices 等价） |
 | `auth-service` | 5000 | 用户管理、OAuth2 授权、JWT 签发/校验 | SAS 自定义 password grant + client_id-only(NONE) 客户端认证，legacy 行为等价 |
-| `account-service` | 6001 | 账务核心：开户、查询、收支/储蓄变更 | **金融红线区**：仅等价迁移；`@PreAuthorize` 域校验保留（SCOPE_server / demo） |
+| `account-service` | 6000 | 账务核心：开户、查询、收支/储蓄变更 | **金融红线区**：仅等价迁移；`@PreAuthorize` 域校验保留（SCOPE_server / demo） |
 | `statistics-service` | 7000 | 统计聚合、汇率换算、DataPoint 持久化 | **金融红线区**：金额精度 scale=4/HALF_UP 黄金数据锁定；fallback 降级保可用性 |
 | `notification-service` | 8000 | 邮件提醒、收件人设置、备份 cron | `@Scheduled` cron 由 Nacos 配置驱动 |
 
 支撑目录：`nacos-config/`（配置模板+同步脚本）、`skywalking/`（告警规则+OAP 外挂驱动）、`integration-test/`（IT 编排+联调验证脚本）、`mongodb/dump`（初始化数据）、`init/`（Nacos 初始化）。
+
+## 仓库目录结构
+
+```
+piggymetrics-refactored/
+├── pom.xml                          # 聚合父 POM（BOM 统一版本，5 module）
+├── gateway/                         # Spring Cloud Gateway + Sentinel 网关流控
+├── auth-service/                    # Spring Authorization Server（用户/JWT/legacy grant 兼容）
+├── account-service/                 # 账务核心（金融红线区）
+├── statistics-service/              # 统计与汇率换算（金融红线区）
+├── notification-service/            # 邮件通知/备份 cron
+├── docker-compose.yml               # 主编排：12 容器（Nacos/MySQL/Sentinel/4×Mongo/5×服务）
+├── docker-compose.override.yml      # macOS 端口适配（AirPlay 占用 5000/7000 时重映射）
+├── docker-compose.tracing.yml       # 叠加：Jaeger（联调链路追踪，方案B）
+├── docker-compose.skywalking.yml    # 叠加：SkyWalking OAP/UI/Agent（预发/生产，方案C）
+├── nacos-config/                    # Nacos 配置模板 + 同步脚本（sync-to-nacos.py）
+├── skywalking/                      # 告警规则 alarm-settings.yml + OAP 外挂 JDBC 驱动
+├── integration-test/                # IT 编排、rates-mock、31 断言联调脚本
+├── mongodb/                         # Mongo 初始化 dump（demo 账户/黄金数据基线）
+├── docs/                            # ★ 17 份分阶段交付过程文档（审计→重构→测试→部署→追踪）
+├── verify-main-compose.py           # 全链路 31 项自动化断言
+├── verify-skywalking.py             # SkyWalking 7 项验证
+├── stress-gateway.py                # 网关四阶段压测（基线/限流/降级/traceId）
+├── provision-main-nacos.py          # Nacos namespace/config 一键初始化
+└── sw-generate-traffic.py           # 认证流量生成器（演示/验证用）
+```
 
 ## 业务接口
 
@@ -259,18 +286,18 @@ python3 verify-main-compose.py   # 需全栈已启动
 
 ## 过程文档索引
 
-完整金融级分阶段交付过程资产见 `../refactor-docs/`（[README 索引](../refactor-docs/README.md)）：
+完整金融级分阶段交付过程资产（17 份）已随仓库归档于 [`docs/`](docs/)，总索引见 [docs/README.md](docs/README.md)：
 
 | 阶段 | 文档 |
 |---|---|
-| 1 审计 | 阶段1-架构审计与升级方案报告（风险分级 L/M/H，红线标记） |
-| 2 重构 | 阶段2-重构交付报告（等价迁移记录、路由实测） |
-| 3 测试设计 | 阶段3-测试用例设计文档（51 用例，金融红线清单） |
-| 4 测试执行 | 阶段4-测试执行报告（75/75，bug 修复记录） |
-| 5 文档 | 阶段5-重构后架构文档 / 开发文档 / 部署文档 + 回滚方案（L0-L3 分级） |
-| 联调 | 全链路联调报告 / 主compose全链路联调报告（×2 轮） / 网关压测与Sentinel验证报告 |
-| 配置 | Nacos配置同步与拉取验证报告 |
-| 可观测 | 链路追踪落地报告-Jaeger方案B / 生产链路追踪-SkyWalking接入指南 / SkyWalking预发部署验证报告 |
+| 1 审计 | [阶段1-架构审计与升级方案报告](docs/阶段1-架构审计与升级方案报告.md)（风险分级 L/M/H，红线标记） |
+| 2 重构 | [阶段2-重构交付报告](docs/阶段2-重构交付报告.md)（等价迁移记录、路由实测） |
+| 3 测试设计 | [阶段3-测试用例设计文档](docs/阶段3-测试用例设计文档.md)（51 用例，金融红线清单） |
+| 4 测试执行 | [阶段4-测试执行报告](docs/阶段4-测试执行报告.md)（75/75，bug 修复记录） |
+| 5 文档 | [重构后架构文档](docs/阶段5-重构后架构文档.md) / [开发文档](docs/阶段5-开发文档.md) / [部署文档](docs/阶段5-部署文档.md) + [回滚方案](docs/回滚方案.md)（L0-L3 分级） |
+| 联调 | [全链路联调报告](docs/全链路联调报告.md) / [主compose联调报告](docs/主compose全链路联调报告.md)（[第2轮冷启动](docs/主compose全链路联调报告-第2轮冷启动.md)） / [网关压测与Sentinel验证](docs/网关压测与Sentinel验证报告.md) |
+| 配置 | [Nacos配置同步与拉取验证报告](docs/Nacos配置同步与拉取验证报告.md) |
+| 可观测 | [Jaeger落地报告(方案B)](docs/链路追踪落地报告-Jaeger方案B.md) / [SkyWalking接入指南(方案C)](docs/生产链路追踪-SkyWalking接入指南.md) / [SkyWalking预发部署验证报告](docs/SkyWalking预发部署验证报告.md) |
 
 ## 已知限制
 
