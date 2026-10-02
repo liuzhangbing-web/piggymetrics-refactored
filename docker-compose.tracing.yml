@@ -1,0 +1,33 @@
+# docker-compose.tracing.yml — 联调/开发环境链路追踪（方案B：Jaeger all-in-one）
+#
+# 用法（与主 compose 叠加）：
+#   docker compose -f docker-compose.yml -f docker-compose.override.yml \
+#                  -f docker-compose.tracing.yml up -d
+#
+# 说明：
+# - Jaeger all-in-one 开启 Zipkin 兼容端口 9414，现有 micrometer-tracing-bridge-brave
+#   无需改依赖即可上报（各服务 management.zipkin.tracing.endpoint 默认已指向 jaeger:9414）。
+# - UI: http://localhost:16686 ；Zipkin 兼容收集端口 9414（容器网络内）。
+# - 生产（方案C SkyWalking）不使用本文件，见 refactor-docs/生产链路追踪-SkyWalking接入指南.md。
+# - 本文件仅联调用，不进生产部署编排。
+
+services:
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    container_name: jaeger
+    environment:
+      - COLLECTOR_ZIPKIN_HOST_PORT=:9414   # 开启 Zipkin 兼容收集端口（brave 上报用）
+      - SPAN_STORAGE_TYPE=memory
+      - MEMORY_MAX_TRACES=20000
+    ports:
+      - "16686:16686"   # Jaeger UI
+      - "9414:9414"     # Zipkin 兼容端口（宿主机调试用；容器内服务走 jaeger:9414）
+    networks:
+      - default
+    healthcheck:
+      # Jaeger image ships wget (not curl); probe UI/query port :16686 (verified HTTP 200)
+      test: ["CMD-SHELL", "wget -qO- http://localhost:16686/ >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s

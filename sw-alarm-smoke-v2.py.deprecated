@@ -1,0 +1,156 @@
+#!/usr/bin/env python3
+"""SkyWalking alarm smoke test v2 (corrected).
+
+Fixes over v1 (which produced a FALSE ALARM_NOT_FIRED):
+- Uses the real 10.x GraphQL field `getAlarm` -> Alarms{ msgs: [AlarmMessage] }.
+  v1 used nonexistent `getAlarmMessage`; its 400 was swallowed by try/except
+  and misreported as "alarms=0".
+- Does NOT swallow GraphQL errors (query failure is reported distinctly).
+- Generates AUTHENTICATED traffic (create account -> password grant -> Bearer calls)
+  so requests actually reach account/statistics services (v1's traffic was 401x40).
+- Uses a global RT>1ms rule (no include-names) to sidestep the namespace-suffix
+  name-matching issue (`include-names: account-service` never matched the real
+  service name `account-service|piggymetrics-pre|`).
+
+Flow: baseline alarms -> lower threshold + restart OAP -> authenticated traffic across
+cycles -> assert alarm fired -> restore production alarm-settings.yml + restart OAP.
+"""
+import json, time, urllib.request, urllib.error, urllib.parse, subprocess, sys
+
+OAP = "http://localhost:12800/graphql"
+GW = "http://localhost:4000"
+ROOT = "/Users/liuzhangbing/Downloads/D/workspace_tke/piggymetrics-refactored"
+ALARM = ROOT + "/skywalking/alarm-settings.yml"
+PW = "".join(["demo", "12345"])
+env = dict(l.strip().split("=", 1) for l in open(ROOT + "/.env") if "=" in l)
+
+
+def gql(query, variables=None):
+    body = json.dumps({"query": query, "variables": variables or {}}).encode()
+    req = urllib.request.Request(OAP, data=body, headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=25) as r:
+            return r.status, json.loads(r.read().decode())
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read().decode() or "{}")
+
+
+def http(method, url, data=None, headers=None, raw=None, ctype=None):
+    h = dict(headers or {}); body = None
+    if raw is not None:
+        body = raw.encode(); h["Content-Type"] = ctype
+    elif data is not None:
+        body = urllib.parse.urlencode(data).encode()
+        h["Content-Type"] = "application/x-www-form-urlencoded"
+    r = urllib.request.Request(url, data=body, method=method, headers=h)
+    try:
+        with urllib.request.urlopen(r, timeout=15) as resp:
+            return resp.status, resp.read().decode()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode()
+    except Exception as e:
+        return -1, str(e)
+
+
+def win(minus=120):
+    e = time.gmtime(time.time()); s = time.gmtime(time.time() - minus * 60)
+    return time.strftime("%Y-%m-%d %H%M", s), time.strftime("%Y-%m-%d %H%M", e)
+
+
+def query_alarms(label):
+    start, end = win()
+    st, d = gql('''query q($d: Duration!) {
+        getAlarm(keyword: "", scope: Service, duration: $d, paging: {pageNum: 1, pageSize: 30}) {
+          msgs { startTime scope id name message tags { key value } } } }''',
+                {"d": {"start": start, "end": end, "step": "MINUTE"}})
+    if st != 200 or "errors" in d:
+        print(f"[{label}] QUERY ERROR st={st} {json.dumps(d)[:200]}")
+        return None  # distinguish query failure from "no alarms"
+    msgs = d["data"]["getAlarm"]["msgs"]
+    print(f"[{label}] alarms={len(msgs)}")
+    for m in msgs[:10]:
+        print("   -", m.get("name"), "|", m.get("message", "")[:90])
+    return msgs
+
+
+def authenticated_traffic(rounds=10):
+    probe = "swa-" + str(int(time.time()))[-6:] + "-" + str(rounds)
+    st, _ = http("POST", GW + "/accounts/",
+                 raw=json.dumps({"username": probe, "password": PW}), ctype="application/json")
+    st2, body = http("POST", GW + "/uaa/oauth2/token", data={
+        "grant_type": "password", "client_id": "browser", "username": probe, "password": PW, "scope": "ui"})
+    tok = json.loads(body).get("access_token", "") if st2 == 200 else ""
+    if not tok:
+        return {"no_token": 1, "reg": st}
+    ah = {"Authorization": "Bearer " + tok}
+    codes = {}
+    for i in range(rounds):
+        for path in ["/accounts/current", "/statistics/current"]:
+            s, _ = http("GET", GW + path, headers=ah)
+            codes[s] = codes.get(s, 0) + 1
+    return codes
+
+
+def restart_oap():
+    subprocess.run(["docker", "restart", "skywalking-oap"], capture_output=True, timeout=90)
+    for _ in range(45):
+        st = subprocess.run(["docker", "inspect", "--format", "{{.State.Health.Status}}", "skywalking-oap"],
+                            capture_output=True, text=True, timeout=15).stdout.strip()
+        if st == "healthy":
+            return True
+        time.sleep(5)
+    return False
+
+
+def main():
+    orig = open(ALARM).read()
+
+    print("=== STEP 1: baseline alarm query (production thresholds) ===")
+    base = query_alarms("baseline")
+    if base is None:
+        print("BASELINE_QUERY_BROKEN - aborting"); sys.exit(3)
+    print(f"  baseline alarms (healthy system => expect 0): {len(base)}")
+
+    print("\n=== STEP 2: inject global RT>1ms rule (guaranteed to fire under traffic) ===")
+    t = orig.replace("expression: sum(service_resp_time > 800) >= 3",
+                     "expression: sum(service_resp_time > 1) >= 1")
+    t = t.replace('''period: 10
+    silence-period: 10
+    # 仅对 account-service 生效
+    include-names:
+      - account-service
+''', 'period: 2\n    silence-period: 1\n')
+    if "service_resp_time > 1" not in t or "include-names" in t.split("service_resp_time > 1")[1][:200]:
+        print("PATCH_FAILED - restoring & abort"); open(ALARM, "w").write(orig); sys.exit(4)
+    open(ALARM, "w").write(t)
+    print("  patched (>1ms, period=2, count>=1, global scope); restart OAP...")
+    if not restart_oap():
+        open(ALARM, "w").write(orig); print("OAP not healthy - restored, abort"); sys.exit(5)
+    print("  OAP healthy")
+
+    print("\n=== STEP 3: authenticated traffic + wait cycles ===")
+    fired = None
+    for cycle in range(8):
+        codes = authenticated_traffic(10)
+        print(f"  cycle-{cycle} traffic={codes}")
+        time.sleep(45)
+        fired = query_alarms(f"cycle-{cycle}")
+        if fired:
+            print("  *** ALARM(S) PRESENT ***")
+            break
+
+    print("\n=== STEP 4: restore production alarm-settings.yml ===")
+    open(ALARM, "w").write(orig)
+    ok2 = restart_oap()
+    print("  restored + OAP healthy:", ok2)
+
+    if fired:
+        print("\nRESULT: ALARM_FIRED_OK (%d alarm(s))" % len(fired))
+        sys.exit(0)
+    else:
+        print("\nRESULT: ALARM_NOT_FIRED")
+        sys.exit(2)
+
+
+if __name__ == "__main__":
+    main()

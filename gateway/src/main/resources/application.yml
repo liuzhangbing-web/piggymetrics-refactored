@@ -1,0 +1,64 @@
+spring:
+  application:
+    name: gateway
+  config:
+    import: "optional:nacos:${spring.application.name}.yml?group=PIGGYMETRICS,optional:nacos:application-common.yml?group=PIGGYMETRICS"
+  cloud:
+    nacos:
+      server-addr: ${NACOS_SERVER_ADDR:nacos:8848}
+      discovery:
+        namespace: ${NACOS_NAMESPACE:dev}
+      config:
+        namespace: ${NACOS_NAMESPACE:dev}
+    gateway:
+      server:
+        webflux:
+          routes:
+            # MIGRATION: Zuul routes -> Spring Cloud Gateway declarative routes.
+            # Path prefixes and downstream targets preserved 1:1 (stripPrefix=false
+            # in Zuul == no StripPrefix filter here). auth-service keeps a fixed URL
+            # (Zuul used url:), the other three use service discovery + loadbalancer.
+            - id: auth-service
+              uri: http://auth-service:5000
+              predicates:
+                - Path=/uaa/**
+            - id: account-service
+              uri: lb://account-service
+              predicates:
+                - Path=/accounts/**
+            - id: statistics-service
+              uri: lb://statistics-service
+              predicates:
+                - Path=/statistics/**
+            - id: notification-service
+              uri: lb://notification-service
+              predicates:
+                - Path=/notifications/**
+          # MIGRATION: zuul.ignoredServices='*' has no direct equivalent; SCG only routes
+          # what is declared above, so unknown services are not exposed by default.
+          httpclient:
+            connect-timeout: 20000          # was: zuul.host.connect-timeout-millis / ribbon.ConnectTimeout
+            response-timeout: 20s             # was: zuul.host.socket-timeout-millis / ribbon.ReadTimeout
+    sentinel:
+      transport:
+        dashboard: ${SENTINEL_DASHBOARD:sentinel-dashboard:8080}
+      eager: true
+
+server:
+  port: 4000
+
+management:
+  zipkin:
+    tracing:
+      endpoint: ${ZIPKIN_ENDPOINT:http://jaeger:9414/api/v2/spans}
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLING:1.0}
+  endpoints:
+    web:
+      exposure:
+        include: health,info,gateway
+
+logging:
+  pattern:
+    level: "%5p [${spring.application.name:},%X{traceId:-},%X{spanId:-}]"

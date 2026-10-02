@@ -1,0 +1,47 @@
+spring:
+  application:
+    name: auth-service
+  config:
+    import: "optional:nacos:${spring.application.name}.yml?group=PIGGYMETRICS,optional:nacos:application-common.yml?group=PIGGYMETRICS"
+  cloud:
+    nacos:
+      server-addr: ${NACOS_SERVER_ADDR:nacos:8848}
+      discovery:
+        namespace: ${NACOS_NAMESPACE:dev}
+      config:
+        namespace: ${NACOS_NAMESPACE:dev}
+  data:
+    mongodb:
+      host: ${MONGO_HOST:auth-mongodb}
+      username: user
+      password: ${MONGODB_PASSWORD}
+      database: piggymetrics
+      port: 27017
+
+server:
+  servlet:
+    context-path: /uaa
+  port: 5000
+
+# MIGRATION notes:
+# - Authorization server: Spring Authorization Server (see OAuth2AuthorizationServerConfig).
+#   Token endpoint moved from /uaa/oauth/token to /uaa/oauth2/token (SAS default); gateway
+#   route /uaa/** is unchanged, clients updated accordingly.
+# - auth-service also acts as a resource server for /uaa/users/current; JWT validation uses
+#   the local JwtDecoder bean (JwtKeyProvider), no user-info callback anymore.
+
+logging:
+  pattern:
+    level: "%5p [${spring.application.name:},%X{traceId:-},%X{spanId:-}]"
+
+# ---- Distributed tracing export (方案B Jaeger / 方案C SkyWalking 通用) ----
+# brave(Zipkin wire format) 上报；endpoint 由环境变量注入：
+#   联调/开发: Jaeger  all-in-one  -> http://jaeger:9414/api/v2/spans (Zipkin 兼容端口)
+#   生产(金融): SkyWalking OAP     -> 见 production 文档(建议 javaagent 无侵入方式)
+management:
+  zipkin:
+    tracing:
+      endpoint: ${ZIPKIN_ENDPOINT:http://jaeger:9414/api/v2/spans}
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLING:1.0}

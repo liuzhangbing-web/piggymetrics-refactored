@@ -1,0 +1,176 @@
+name: piggymetrics-it
+
+# 联调专用编排（阶段4补充验证）。设计要点：
+# 1. 不触碰用户已有容器（nacos-3.0.3/mysql8-nacos/mongo-it 保持运行）
+# 2. 规避 macOS AirPlay 占用的 5000/7000 宿主机端口 -> 映射到 15000/17000
+# 3. 8848/9848 已被占用 -> nacos 宿主端口改 18848/19848
+# 4. nacos healthcheck 用镜像内 curl 探测 v3 state 接口（actuator/health 在 3.x 为 404）
+# 5. 增加 rates-mock（nginx）替代已停服的外部汇率 API（D16），使统计链路可全程走通
+# 6. 服务不发布宿主端口也可联调（同网络内互通），仅 gateway 发布 14000 便于宿主机 curl
+
+services:
+  nacos:
+    image: nacos/nacos-server:v3.0.3
+    environment:
+      - MODE=standalone
+      - NACOS_AUTH_ENABLE=false
+      # Nacos 3.x requires a Base64 token env even when auth is disabled
+      - NACOS_AUTH_TOKEN=${IT_NACOS_TOKEN}
+      - NACOS_AUTH_IDENTITY_KEY=serverIdentityKey
+      - NACOS_AUTH_IDENTITY_VALUE=serverIdentityValue
+      - JVM_XMS=256m
+      - JVM_XMX=256m
+    ports:
+      - "18848:8848"
+      - "19848:9848"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8848/nacos/v3/admin/core/state", "-H", "serverIdentityKey: serverIdentityValue", "-o", "/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  rates-mock:
+    image: nginx:alpine
+    volumes:
+      - ./rates-mock/latest.json:/usr/share/nginx/html/latest.json:ro
+      - ./rates-mock/default.conf:/etc/nginx/conf.d/default.conf:ro
+
+  auth-mongodb:
+    image: mongo:4.4
+    command: ["--bind_ip_all"]
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: user
+      MONGO_INITDB_ROOT_PASSWORD: ${IT_MONGO_PW}
+      MONGO_INITDB_DATABASE: piggymetrics
+
+  account-mongodb:
+    image: mongo:4.4
+    command: ["--bind_ip_all"]
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: user
+      MONGO_INITDB_ROOT_PASSWORD: ${IT_MONGO_PW}
+      MONGO_INITDB_DATABASE: piggymetrics
+
+  statistics-mongodb:
+    image: mongo:4.4
+    command: ["--bind_ip_all"]
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: user
+      MONGO_INITDB_ROOT_PASSWORD: ${IT_MONGO_PW}
+      MONGO_INITDB_DATABASE: piggymetrics
+
+  notification-mongodb:
+    image: mongo:4.4
+    command: ["--bind_ip_all"]
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: user
+      MONGO_INITDB_ROOT_PASSWORD: ${IT_MONGO_PW}
+      MONGO_INITDB_DATABASE: piggymetrics
+
+  auth-service:
+    image: eclipse-temurin:17-jre
+    working_dir: /app
+    volumes:
+      - ../auth-service/target/auth-service.jar:/app/app.jar:ro
+    command: ["java", "-Xmx300m", "-jar", "/app/app.jar"]
+    depends_on:
+      nacos:
+        condition: service_healthy
+      auth-mongodb:
+        condition: service_started
+    environment:
+      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_NAMESPACE: it
+      SPRING_DATA_MONGODB_AUTHENTICATIONDATABASE: admin
+      MONGO_HOST: auth-mongodb
+      MONGODB_PASSWORD: ${IT_MONGO_PW}
+      ACCOUNT_SERVICE_PASSWORD: ${IT_ACCOUNT_PW}
+      STATISTICS_SERVICE_PASSWORD: ${IT_STATISTICS_PW}
+      NOTIFICATION_SERVICE_PASSWORD: ${IT_NOTIFICATION_PW}
+
+  account-service:
+    image: eclipse-temurin:17-jre
+    working_dir: /app
+    volumes:
+      - ../account-service/target/account-service.jar:/app/app.jar:ro
+    command: ["java", "-Xmx300m", "-jar", "/app/app.jar"]
+    depends_on:
+      nacos:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+      account-mongodb:
+        condition: service_started
+    environment:
+      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_NAMESPACE: it
+      SPRING_DATA_MONGODB_AUTHENTICATIONDATABASE: admin
+      MONGO_HOST: account-mongodb
+      MONGODB_PASSWORD: ${IT_MONGO_PW}
+      ACCOUNT_SERVICE_PASSWORD: ${IT_ACCOUNT_PW}
+
+  statistics-service:
+    image: eclipse-temurin:17-jre
+    working_dir: /app
+    volumes:
+      - ../statistics-service/target/statistics-service.jar:/app/app.jar:ro
+    command: >
+      java -Xmx300m -jar /app/app.jar
+      --rates.url=http://rates-mock
+    depends_on:
+      nacos:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+      statistics-mongodb:
+        condition: service_started
+      rates-mock:
+        condition: service_started
+    environment:
+      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_NAMESPACE: it
+      SPRING_DATA_MONGODB_AUTHENTICATIONDATABASE: admin
+      MONGO_HOST: statistics-mongodb
+      MONGODB_PASSWORD: ${IT_MONGO_PW}
+      STATISTICS_SERVICE_PASSWORD: ${IT_STATISTICS_PW}
+
+  notification-service:
+    image: eclipse-temurin:17-jre
+    working_dir: /app
+    volumes:
+      - ../notification-service/target/notification-service.jar:/app/app.jar:ro
+    command: ["java", "-Xmx300m", "-jar", "/app/app.jar"]
+    depends_on:
+      nacos:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+      notification-mongodb:
+        condition: service_started
+    environment:
+      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_NAMESPACE: it
+      SPRING_DATA_MONGODB_AUTHENTICATIONDATABASE: admin
+      MONGO_HOST: notification-mongodb
+      MONGODB_PASSWORD: ${IT_MONGO_PW}
+      NOTIFICATION_SERVICE_PASSWORD: ${IT_NOTIFICATION_PW}
+      # SMTP 不可达属预期：发信在定时任务里，不影响启动与联调主链路
+      SPRING_MAIL_HOST: smtp.invalid.local
+
+  gateway:
+    image: eclipse-temurin:17-jre
+    working_dir: /app
+    volumes:
+      - ../gateway/target/gateway.jar:/app/app.jar:ro
+    command: ["java", "-Xmx300m", "-jar", "/app/app.jar"]
+    depends_on:
+      nacos:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+    environment:
+      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_NAMESPACE: it
+    ports:
+      - "14000:4000"

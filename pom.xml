@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+		 xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+
+	<parent>
+		<groupId>org.springframework.boot</groupId>
+		<artifactId>spring-boot-starter-parent</artifactId>
+		<version>3.5.3</version>
+		<relativePath/>
+	</parent>
+
+	<groupId>com.piggymetrics</groupId>
+	<artifactId>piggymetrics</artifactId>
+	<version>2.0-SNAPSHOT</version>
+	<packaging>pom</packaging>
+	<name>piggymetrics</name>
+
+	<properties>
+		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+		<java.version>17</java.version>
+		<spring-cloud.version>2025.0.0</spring-cloud.version>
+		<spring-cloud-alibaba.version>2025.0.0.0</spring-cloud-alibaba.version>
+		<shedlock.version>7.10.1</shedlock.version>
+		<jacoco.version>0.8.13</jacoco.version>
+	</properties>
+
+	<dependencyManagement>
+		<dependencies>
+			<dependency>
+				<groupId>org.springframework.cloud</groupId>
+				<artifactId>spring-cloud-dependencies</artifactId>
+				<version>${spring-cloud.version}</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+			<dependency>
+				<groupId>com.alibaba.cloud</groupId>
+				<artifactId>spring-cloud-alibaba-dependencies</artifactId>
+				<version>${spring-cloud-alibaba.version}</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+			<dependency>
+				<groupId>net.javacrumbs.shedlock</groupId>
+				<artifactId>shedlock-spring</artifactId>
+				<version>${shedlock.version}</version>
+			</dependency>
+			<dependency>
+				<groupId>net.javacrumbs.shedlock</groupId>
+				<artifactId>shedlock-provider-mongo</artifactId>
+				<version>${shedlock.version}</version>
+			</dependency>
+		</dependencies>
+	</dependencyManagement>
+
+	<modules>
+		<module>gateway</module>
+		<module>auth-service</module>
+		<module>account-service</module>
+		<module>statistics-service</module>
+		<module>notification-service</module>
+	</modules>
+
+	<build>
+		<pluginManagement>
+			<plugins>
+				<plugin>
+					<groupId>org.jacoco</groupId>
+					<artifactId>jacoco-maven-plugin</artifactId>
+					<version>${jacoco.version}</version>
+				</plugin>
+			</plugins>
+		</pluginManagement>
+	</build>
+</project>

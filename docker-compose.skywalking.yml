@@ -1,0 +1,185 @@
+# docker-compose.skywalking.yml — 预发/生产链路追踪（方案C：Apache SkyWalking）
+#
+# 叠加用法（与主 compose + 端口适配一起）：
+#   docker compose -f docker-compose.yml -f docker-compose.override.yml \
+#                  -f docker-compose.skywalking.yml up -d
+#
+# 设计：
+# - Java Agent 经 sidecar 灌入共享 volume，业务服务以 JAVA_TOOL_OPTIONS 挂载注入，
+#   零业务代码改动、零业务镜像重建（回滚=去掉本叠加文件）。
+# - OAP 存储用 H2（预发验证足够；生产改 SW_STORAGE=elasticsearch + ES 集群）。
+# - UI 宿主端口 18080（避开 nacos console 占用的 8080）。
+# - 告警规则经 volume 覆盖 OAP 的 alarm-settings.yml（见 skywalking/alarm-settings.yml）。
+# - 采样率经各服务 SW_AGENT_SAMPLE_RATE 环境变量调整（见 environment）。
+
+services:
+  # 1) agent loader：把 SkyWalking Java Agent 拷进共享 volume 后退出
+  sw-agent-loader:
+    image: apache/skywalking-java-agent:9.4.0-java17
+    container_name: sw-agent-loader
+    command: ["sh", "-c", "cp -r /skywalking/agent/. /sw-agent/ && chmod -R a+rX /sw-agent && echo agent-loaded"]
+    volumes:
+      - sw-agent:/sw-agent
+
+  # 2a) SkyWalking 存储（MySQL；SkyWalking 10.x 已移除 H2 provider）
+  #     本地已有 mysql:8.0.46-oracle 镜像，避免额外拉取；生产建议 Elasticsearch/BanyanDB。
+  skywalking-mysql:
+    image: mysql:8.0.46-oracle
+    container_name: skywalking-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: sw-root-pw
+      MYSQL_DATABASE: swtest
+    command:
+      --default-authentication-plugin=mysql_native_password
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - sw_mysql_data:/var/lib/mysql
+    networks:
+      - default
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-psw-root-pw"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  # 2b) OAP 后端（分析平台）
+  oap:
+    image: apache/skywalking-oap-server:10.2.0
+    container_name: skywalking-oap
+    depends_on:
+      sw-agent-loader:
+        condition: service_completed_successfully
+      skywalking-mysql:
+        condition: service_healthy
+    environment:
+      SW_STORAGE: mysql                       # SkyWalking 10.x: h2 已移除，用 mysql（生产建议 elasticsearch/banyandb）
+      SW_JDBC_URL: "jdbc:mysql://skywalking-mysql:3306/swtest?rewriteBatchedStatements=true&allowMultiQueries=true"
+      SW_DATA_SOURCE_USER: root
+      SW_DATA_SOURCE_PASSWORD: sw-root-pw
+      SW_HEALTH_CHECKER: default
+      SW_TELEMETRY: prometheus                # OAP 自监控
+      # 限制 OAP 堆内存，避免与 5 个业务 JVM 争抢导致 OOM(exit 137)；生产按容量调大
+      JAVA_OPTS: "-Xms256m -Xmx512m"
+      SW_CORE_REST_PORT: "12800"
+      SW_CORE_GRPC_PORT: "11800"
+      SW_CORE_RECORD_DATA_TTL: "3"            # 明细留存 3 天（预发；生产 ES 设 >=7）
+      SW_CORE_METRICS_DATA_TTL: "7"           # 指标留存 7 天
+      # 告警规则由挂载的 alarm-settings.yml 提供（见 volumes）
+    volumes:
+      - ./skywalking/alarm-settings.yml:/skywalking/config/alarm-settings.yml:ro
+      # SkyWalking OAP 因 Apache License 不捆绑 MySQL JDBC 驱动，需外挂（生产同理，
+      # 驱动来自 Maven Central com.mysql:mysql-connector-j，随部署制品纳入合规审计）
+      - ./skywalking/oap-libs/mysql-connector-j-9.2.0.jar:/skywalking/oap-libs/mysql-connector-j-9.2.0.jar:ro
+    ports:
+      - "11800:11800"   # gRPC agent 上报
+      - "12800:12800"   # HTTP query（UI/REST）
+    networks:
+      - default
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/12800' || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 25
+      start_period: 60s
+
+  # 3) UI
+  skywalking-ui:
+    image: apache/skywalking-ui:10.2.0
+    container_name: skywalking-ui
+    depends_on:
+      oap:
+        condition: service_healthy
+    environment:
+      SW_OAP_ADDRESS: http://oap:12800
+    ports:
+      - "18080:8080"
+    networks:
+      - default
+
+  # ===== 以下为对主 compose 5 个业务服务的 override：注入 javaagent + SkyWalking 配置 =====
+  # 关键：SW_AGENT_SAMPLE_RATE 采样率（每 3 秒最多采集的 trace segment 数；-1=全采）
+  #   预发演示：网关全采(-1)，业务服务限采(300/3s)，体现按服务差异化调采样率
+  gateway:
+    depends_on:
+      sw-agent-loader:
+        condition: service_completed_successfully
+    volumes:
+      - sw-agent:/opt/skywalking-agent:ro
+    environment:
+      JAVA_TOOL_OPTIONS: "-javaagent:/opt/skywalking-agent/skywalking-agent.jar"
+      SW_AGENT_NAME: gateway
+      SW_AGENT_NAMESPACE: piggymetrics-pre
+      SW_AGENT_COLLECTOR_BACKEND_SERVICES: oap:11800
+      SW_AGENT_SAMPLE_RATE: "-1"                 # 网关全采（入口，需完整拓扑）
+      SW_LOGGING_OUTPUT: FILE
+      SW_TRACE_IGNORE_PATH: "/actuator/**,/eureka/**"
+
+  auth-service:
+    depends_on:
+      sw-agent-loader:
+        condition: service_completed_successfully
+    volumes:
+      - sw-agent:/opt/skywalking-agent:ro
+    environment:
+      JAVA_TOOL_OPTIONS: "-javaagent:/opt/skywalking-agent/skywalking-agent.jar"
+      SW_AGENT_NAME: auth-service
+      SW_AGENT_NAMESPACE: piggymetrics-pre
+      SW_AGENT_COLLECTOR_BACKEND_SERVICES: oap:11800
+      SW_AGENT_SAMPLE_RATE: "300"                # 业务服务限采 300/3s
+      SW_LOGGING_OUTPUT: FILE
+      SW_TRACE_IGNORE_PATH: "/actuator/**"
+
+  account-service:
+    depends_on:
+      sw-agent-loader:
+        condition: service_completed_successfully
+    volumes:
+      - sw-agent:/opt/skywalking-agent:ro
+    environment:
+      JAVA_TOOL_OPTIONS: "-javaagent:/opt/skywalking-agent/skywalking-agent.jar"
+      SW_AGENT_NAME: account-service
+      SW_AGENT_NAMESPACE: piggymetrics-pre
+      SW_AGENT_COLLECTOR_BACKEND_SERVICES: oap:11800
+      SW_AGENT_SAMPLE_RATE: "300"
+      SW_LOGGING_OUTPUT: FILE
+      SW_TRACE_IGNORE_PATH: "/actuator/**"
+
+  statistics-service:
+    depends_on:
+      sw-agent-loader:
+        condition: service_completed_successfully
+    volumes:
+      - sw-agent:/opt/skywalking-agent:ro
+    environment:
+      JAVA_TOOL_OPTIONS: "-javaagent:/opt/skywalking-agent/skywalking-agent.jar"
+      SW_AGENT_NAME: statistics-service
+      SW_AGENT_NAMESPACE: piggymetrics-pre
+      SW_AGENT_COLLECTOR_BACKEND_SERVICES: oap:11800
+      SW_AGENT_SAMPLE_RATE: "300"
+      SW_LOGGING_OUTPUT: FILE
+      SW_TRACE_IGNORE_PATH: "/actuator/**"
+
+  notification-service:
+    depends_on:
+      sw-agent-loader:
+        condition: service_completed_successfully
+    volumes:
+      - sw-agent:/opt/skywalking-agent:ro
+    environment:
+      JAVA_TOOL_OPTIONS: "-javaagent:/opt/skywalking-agent/skywalking-agent.jar"
+      SW_AGENT_NAME: notification-service
+      SW_AGENT_NAMESPACE: piggymetrics-pre
+      SW_AGENT_COLLECTOR_BACKEND_SERVICES: oap:11800
+      SW_AGENT_SAMPLE_RATE: "300"
+      SW_LOGGING_OUTPUT: FILE
+      SW_TRACE_IGNORE_PATH: "/actuator/**"
+
+networks:
+  default:
+    name: piggymetrics-refactored_default
+
+volumes:
+  sw-agent:
+  sw_mysql_data:

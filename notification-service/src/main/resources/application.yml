@@ -1,0 +1,92 @@
+spring:
+  application:
+    name: notification-service
+  config:
+    import: "optional:nacos:${spring.application.name}.yml?group=PIGGYMETRICS,optional:nacos:application-common.yml?group=PIGGYMETRICS"
+  cloud:
+    nacos:
+      server-addr: ${NACOS_SERVER_ADDR:nacos:8848}
+      discovery:
+        namespace: ${NACOS_NAMESPACE:dev}
+      config:
+        namespace: ${NACOS_NAMESPACE:dev}
+  data:
+    mongodb:
+      host: ${MONGO_HOST:notification-mongodb}
+      username: user
+      password: ${MONGODB_PASSWORD}
+      database: piggymetrics
+      port: 27017
+  security:
+    oauth2:
+      client:
+        registration:
+          notification-service:
+            client-id: notification-service
+            client-secret: ${NOTIFICATION_SERVICE_PASSWORD}
+            authorization-grant-type: client_credentials
+            scope: server
+            provider: piggymetrics
+        provider:
+          piggymetrics:
+            token-uri: http://auth-service:5000/uaa/oauth2/token
+      resourceserver:
+        jwt:
+          issuer-uri: http://auth-service:5000/uaa
+  mail:
+    host: smtp.gmail.com
+    port: 465
+    username: dev-user
+    password: dev-password
+    properties:
+      mail:
+        smtp:
+          auth: true
+          socketFactory:
+            port: 465
+            class: javax.net.ssl.SSLSocketFactory
+            fallback: false
+          ssl:
+            enable: true
+
+server:
+  servlet:
+    context-path: /notifications
+  port: 8000
+
+piggymetrics:
+  feign:
+    client-registration-id: notification-service
+
+remind:
+  cron: 0 0 0 * * *
+  email:
+    text: "Hey, {0}! We''ve missed you here on PiggyMetrics. It''s time to check your budget statistics.\r\n\r\nCheers,\r\nPiggyMetrics team"
+    subject: PiggyMetrics reminder
+
+backup:
+  cron: 0 0 12 * * *
+  email:
+    text: "Howdy, {0}. Your account backup is ready.\r\n\r\nCheers,\r\nPiggyMetrics team"
+    subject: PiggyMetrics account backup
+    attachment: backup.json
+
+feign:
+  sentinel:
+    enabled: true
+
+logging:
+  pattern:
+    level: "%5p [${spring.application.name:},%X{traceId:-},%X{spanId:-}]"
+
+# ---- Distributed tracing export (方案B Jaeger / 方案C SkyWalking 通用) ----
+# brave(Zipkin wire format) 上报；endpoint 由环境变量注入：
+#   联调/开发: Jaeger  all-in-one  -> http://jaeger:9414/api/v2/spans (Zipkin 兼容端口)
+#   生产(金融): SkyWalking OAP     -> 见 production 文档(建议 javaagent 无侵入方式)
+management:
+  zipkin:
+    tracing:
+      endpoint: ${ZIPKIN_ENDPOINT:http://jaeger:9414/api/v2/spans}
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLING:1.0}

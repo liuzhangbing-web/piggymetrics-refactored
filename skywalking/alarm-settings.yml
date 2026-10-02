@@ -1,0 +1,85 @@
+# SkyWalking OAP 告警规则 — piggymetrics 金融预发/生产
+# 挂载到 OAP: /skywalking/config/alarm-settings.yml
+#
+# 设计原则（金融）：
+# - 账务/交易核心服务(account-service)阈值最严，容忍度最低
+# - 覆盖三类信号：成功率(SLA)、响应时间(RT)、服务存活
+# - 结合本工程已知风险：fallback 静默降级(H4)靠 RT/成功率告警兜底发现
+#
+# 语法(SkyWalking 10.x)：metrics-name + op + threshold + period + count + silence-period
+#   op: > < >= <= == !=
+#   period: 统计周期(分钟)  count: 周期内触发次数阈值  silence-period: 同级告警静默(分钟)
+
+rules:
+  # ===== SLA 成功率（金融核心：低于阈值立即告警）=====
+  # account-service 承载账务，SLA 要求最高（<99% 即告警）
+  service_sla_rule:
+    expression: sum(service_sla < 9900) >= 1     # SLA 单位:万分比, 9900=99.00%
+    period: 10
+    silence-period: 10
+    message: "服务 {name} 成功率(SLA)低于 99%（近10分钟），金融核心可用性告警"
+    tags:
+      level: CRITICAL
+
+  # ===== 响应时间 RT（含降级早期信号）=====
+  # 账务服务 RT 敏感：平均响应 >800ms 告警（fallback/慢查询/下游劣化早期信号）
+  account_service_resp_time_rule:
+    expression: sum(service_resp_time > 800) >= 3
+    period: 10
+    silence-period: 10
+    # 仅对账务服务生效。注意：include-names 为精确匹配，必须使用 SkyWalking 完整服务名
+    # （SW_AGENT_NAME|SW_AGENT_NAMESPACE|group 格式）；改命名空间时需同步此处
+    include-names:
+      - account-service|piggymetrics-pre|
+    message: "账务服务 account-service 平均响应时间 >800ms 持续3周期，疑似下游劣化或降级"
+    tags:
+      level: WARNING
+
+  # 通用服务 RT：>1500ms 告警
+  service_resp_time_rule:
+    expression: sum(service_resp_time > 1500) >= 3
+    period: 10
+    silence-period: 10
+    exclude-names:
+      - account-service|piggymetrics-pre|   # 账务服务用更严格的专属规则（完整名精确匹配）
+    message: "服务 {name} 平均响应时间 >1500ms 持续3周期"
+    tags:
+      level: WARNING
+
+  # ===== 端点级 RT（定位到具体接口）=====
+  endpoint_resp_time_rule:
+    expression: sum(endpoint_resp_time > 1000) >= 2
+    period: 10
+    silence-period: 15
+    message: "端点 {name} 平均响应时间 >1000ms 持续2周期"
+    tags:
+      level: WARNING
+
+  # ===== 服务实例存活（实例掉线）=====
+  service_instance_resp_time_rule:
+    expression: sum(service_instance_resp_time > 2000) >= 2
+    period: 10
+    silence-period: 10
+    message: "服务实例 {name} 响应时间 >2000ms，疑似实例异常"
+    tags:
+      level: WARNING
+
+  # ===== 数据库访问（MongoDB 慢查询）=====
+  database_access_resp_time_rule:
+    expression: sum(database_access_resp_time > 1000) >= 2
+    period: 10
+    silence-period: 15
+    message: "数据库访问 {name} 响应时间 >1000ms，疑似 Mongo 慢查询"
+    tags:
+      level: WARNING
+
+# ===== Webhook（接入企业告警通道；预发留空或指向内部收集器）=====
+# 生产：填入企业微信/钉钉/Slack/PagerDuty webhook，OAP 会 POST 告警 JSON
+webhooks:
+#  - http://alert-collector.internal:9099/skywalking/alarm
+#  - https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=<企业微信机器人key>
+
+# ===== gRPC 告警上报（可选，接入统一告警平台）=====
+# gRPCHookRemovers:
+#   default:
+#     targetPort: 11800

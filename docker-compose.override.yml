@@ -1,0 +1,13 @@
+# docker-compose.override.yml — 本机联调端口适配（不改动主 compose 的标准部署形态）
+# 原因：macOS AirPlay Receiver 系统进程占用宿主机 5000/7000 端口。
+# 仅重映射这两个宿主端口；容器网络内部端口不变，服务间调用与网关路由不受影响。
+# 部署到 Linux 服务器时不需要本文件（主 compose 即为标准形态）。
+
+services:
+  auth-service:
+    ports: !override
+      - "15000:5000"
+
+  statistics-service:
+    ports: !override
+      - "17000:7000"

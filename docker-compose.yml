@@ -1,0 +1,188 @@
+version: "3.8"
+
+# MIGRATION (L9): registry(Eureka)/config(ConfigServer)/monitoring(Hystrix Dashboard)/
+# turbine-stream-service removed. Nacos 3.0.3 provides both service discovery and config.
+# JDK base images -> eclipse-temurin:17. Old compose kept alongside in the source repo
+# for rollback.
+
+services:
+  nacos:
+    image: nacos/nacos-server:v3.0.3
+    container_name: nacos-3.0.3
+    ports:
+      - "8080:8080"
+      - "8848:8848"
+      - "9848:9848"
+    environment:
+      MODE: standalone
+      SPRING_DATASOURCE_PLATFORM: mysql
+      MYSQL_SERVICE_HOST: mysql
+      MYSQL_SERVICE_PORT: 3306
+      MYSQL_SERVICE_DB_NAME: nacos_config
+      MYSQL_SERVICE_USER: root
+      MYSQL_SERVICE_PASSWORD: root123456
+      MYSQL_SERVICE_DB_PARAM: characterEncoding=utf8&connectTimeout=1000&socketTimeout=3000&autoReconnect=true&useSSL=false&serverTimezone=Asia/Shanghai
+      # 3.x 强制 token 校验（值来自 .env，Base64）
+      NACOS_AUTH_TOKEN: ${NACOS_AUTH_TOKEN}
+      NACOS_AUTH_IDENTITY_KEY: serverIdentityKey
+      NACOS_AUTH_IDENTITY_VALUE: serverIdentityValue
+    volumes:
+      - nacos_data:/home/nacos/data
+      - nacos_logs:/home/nacos/logs
+    depends_on:
+      - mysql
+    restart: always
+    healthcheck:
+      # Nacos 3.x: /actuator/health returns 404; probe v3 admin state with identity header
+      test: ["CMD", "curl", "-sf", "-H", "serverIdentityKey: serverIdentityValue", "-o", "/dev/null", "http://localhost:8848/nacos/v3/admin/core/state"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  mysql:
+    image: mysql:8.0.46-oracle
+    container_name: mysql8-nacos
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root123456
+      MYSQL_DATABASE: nacos_config
+    command:
+      --default-authentication-plugin=mysql_native_password
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./init:/docker-entrypoint-initdb.d
+    restart: always
+
+
+  sentinel-dashboard:
+    image: bladex/sentinel-dashboard:1.8.9
+    container_name: sentinel-dashboard
+    ports:
+      - "8858:8858"
+
+  auth-mongodb:
+    build: ./mongodb
+    environment:
+      MONGODB_PASSWORD: $MONGODB_PASSWORD
+    ports:
+      - "25000:27017"
+
+  account-mongodb:
+    build: ./mongodb
+    environment:
+      MONGODB_PASSWORD: $MONGODB_PASSWORD
+    ports:
+      - "26000:27017"
+
+  statistics-mongodb:
+    build: ./mongodb
+    environment:
+      MONGODB_PASSWORD: $MONGODB_PASSWORD
+      INIT_DUMP: account-service-dump.js
+    ports:
+      - "27000:27017"
+
+  notification-mongodb:
+    build: ./mongodb
+    environment:
+      MONGODB_PASSWORD: $MONGODB_PASSWORD
+    ports:
+      - "28000:27017"
+
+  auth-service:
+    build: ./auth-service
+    depends_on:
+      nacos:
+        condition: service_healthy
+      auth-mongodb:
+        condition: service_started
+    environment:
+      CONFIG_SERVICE_PASSWORD: $CONFIG_SERVICE_PASSWORD
+      NOTIFICATION_SERVICE_PASSWORD: ${NOTIFICATION_SERVICE_PASSWORD}
+      STATISTICS_SERVICE_PASSWORD: ${STATISTICS_SERVICE_PASSWORD}
+      ACCOUNT_SERVICE_PASSWORD: ${ACCOUNT_SERVICE_PASSWORD}
+      MONGODB_PASSWORD: $MONGODB_PASSWORD
+      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_NAMESPACE: dev
+    ports:
+      - "5000:5000"
+
+  account-service:
+    build: ./account-service
+    depends_on:
+      nacos:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+      account-mongodb:
+        condition: service_started
+    environment:
+      CONFIG_SERVICE_PASSWORD: $CONFIG_SERVICE_PASSWORD
+      ACCOUNT_SERVICE_PASSWORD: ${ACCOUNT_SERVICE_PASSWORD}
+      MONGODB_PASSWORD: $MONGODB_PASSWORD
+      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_NAMESPACE: dev
+      SENTINEL_DASHBOARD: sentinel-dashboard:8858
+    ports:
+      - "6000:6000"
+
+  statistics-service:
+    build: ./statistics-service
+    depends_on:
+      nacos:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+      statistics-mongodb:
+        condition: service_started
+    environment:
+      CONFIG_SERVICE_PASSWORD: $CONFIG_SERVICE_PASSWORD
+      STATISTICS_SERVICE_PASSWORD: ${STATISTICS_SERVICE_PASSWORD}
+      MONGODB_PASSWORD: $MONGODB_PASSWORD
+      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_NAMESPACE: dev
+      SENTINEL_DASHBOARD: sentinel-dashboard:8858
+    ports:
+      - "7000:7000"
+
+  notification-service:
+    build: ./notification-service
+    depends_on:
+      nacos:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+      notification-mongodb:
+        condition: service_started
+    environment:
+      CONFIG_SERVICE_PASSWORD: $CONFIG_SERVICE_PASSWORD
+      NOTIFICATION_SERVICE_PASSWORD: ${NOTIFICATION_SERVICE_PASSWORD}
+      MONGODB_PASSWORD: $MONGODB_PASSWORD
+      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_NAMESPACE: dev
+      SENTINEL_DASHBOARD: sentinel-dashboard:8858
+    ports:
+      - "8000:8000"
+
+  gateway:
+    build: ./gateway
+    depends_on:
+      nacos:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+    environment:
+      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_NAMESPACE: dev
+      SENTINEL_DASHBOARD: sentinel-dashboard:8858
+    ports:
+      - "4000:4000"
+
+volumes:
+  nacos_data:
+  nacos_logs:
+  mysql_data:

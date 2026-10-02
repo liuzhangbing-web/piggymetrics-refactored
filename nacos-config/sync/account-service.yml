@@ -1,0 +1,41 @@
+server:
+  port: 6000
+  servlet:
+    context-path: /accounts
+
+spring:
+  data:
+    mongodb:
+      host: ${MONGO_HOST:account-mongodb}
+      port: 27017
+      database: piggymetrics
+      username: user
+      password: ${MONGODB_PASSWORD:}
+  security:
+    oauth2:
+      client:
+        registration:
+          account-service:
+            client-id: account-service
+            client-secret: ${ACCOUNT_SERVICE_PASSWORD:}
+            authorization-grant-type: client_credentials
+            scope: server
+            provider: piggymetrics
+        provider:
+          piggymetrics:
+            token-uri: http://auth-service:5000/uaa/oauth2/token
+      resourceserver:
+        jwt:
+          issuer-uri: http://auth-service:5000/uaa
+
+piggymetrics:
+  feign:
+    client-registration-id: account-service
+
+feign:
+  sentinel:
+    enabled: true
+
+# ---- marker proving this config is served by Nacos (unique top-level key) ----
+nacosConfigMarker:
+  source: nacos

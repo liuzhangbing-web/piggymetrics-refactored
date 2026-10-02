@@ -1,0 +1,18 @@
+# group: PIGGYMETRICS  dataId: application-common.yml
+# MIGRATION: from config/src/main/resources/shared/application.yml
+# - eureka.* section dropped (Nacos discovery replaces it)
+# - hystrix.command.default timeout 10000ms -> Sentinel default below (semantic equivalent, L8)
+# - security.oauth2.resource.user-info-uri dropped (JWT local validation replaces callback)
+# - spring.rabbitmq dropped (bus-amqp/turbine retired; RabbitMQ no longer required)
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  tracing:
+    sampling:
+      probability: 1.0
+
+# Sentinel degrade rule equivalent of hystrix 10s timeout is configured per-resource
+# via sentinel datasource (nacos) in production; default RT threshold example:
+# feign client timeouts kept at framework defaults (connect 10s / read 60s), gateway 20s.

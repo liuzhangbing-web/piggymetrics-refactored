@@ -1,0 +1,468 @@
+{
+  "_meta": {
+    "description": "Golden values derived analytically by exactly emulating the legacy BigDecimal algorithm (new BigDecimal(double) exact binary value, divide(scale=4, HALF_UP), exact multiply). The legacy Boot 2.0.3/JDK8 project could not be executed here (EOL dependency chain), so per test-case doc section 7 these are human/analytically derived values, independently cross-checked.",
+    "algorithm": "metric = amount * halfUp(rates[to]/rates[from],4) then halfUp(/ baseRatio,4); sum = exact add",
+    "generatedBy": "qwen3.8-max (stage4)",
+    "caseCount": 10
+  },
+  "statisticsCases": [
+    {
+      "id": "G01",
+      "rates": {
+        "EUR": "0.9",
+        "RUB": "75.0",
+        "USD": "1"
+      },
+      "incomes": [
+        {
+          "currency": "EUR",
+          "amount": "1000.00",
+          "period": "MONTH"
+        },
+        {
+          "currency": "USD",
+          "amount": "500.50",
+          "period": "DAY"
+        }
+      ],
+      "expenses": [
+        {
+          "currency": "RUB",
+          "amount": "75000.00",
+          "period": "YEAR"
+        }
+      ],
+      "saving": {
+        "currency": "USD",
+        "amount": "250.75"
+      },
+      "expected": {
+        "incomeMetrics": [
+          "36.5052",
+          "500.5"
+        ],
+        "expenseMetrics": [
+          "2.7311"
+        ],
+        "INCOMES_AMOUNT": "537.0052",
+        "EXPENSES_AMOUNT": "2.7311",
+        "SAVING_AMOUNT": "250.75"
+      }
+    },
+    {
+      "id": "G02",
+      "rates": {
+        "EUR": "0.9",
+        "RUB": "75.0",
+        "USD": "1"
+      },
+      "incomes": [
+        {
+          "currency": "RUB",
+          "amount": "75000.00",
+          "period": "HOUR"
+        }
+      ],
+      "expenses": [
+        {
+          "currency": "EUR",
+          "amount": "0.0001",
+          "period": "DAY"
+        }
+      ],
+      "saving": {
+        "currency": "EUR",
+        "amount": "900.00"
+      },
+      "expected": {
+        "incomeMetrics": [
+          "23978.3654"
+        ],
+        "expenseMetrics": [
+          "0.0001"
+        ],
+        "INCOMES_AMOUNT": "23978.3654",
+        "EXPENSES_AMOUNT": "0.0001",
+        "SAVING_AMOUNT": "999.99"
+      }
+    },
+    {
+      "id": "G03",
+      "rates": {
+        "EUR": "0.9",
+        "RUB": "75.0",
+        "USD": "1"
+      },
+      "incomes": [],
+      "expenses": [],
+      "saving": {
+        "currency": "USD",
+        "amount": "0"
+      },
+      "expected": {
+        "incomeMetrics": [],
+        "expenseMetrics": [],
+        "INCOMES_AMOUNT": "0",
+        "EXPENSES_AMOUNT": "0",
+        "SAVING_AMOUNT": "0"
+      }
+    },
+    {
+      "id": "G04",
+      "rates": {
+        "EUR": "0.9",
+        "RUB": "75.0",
+        "USD": "1"
+      },
+      "incomes": [
+        {
+          "currency": "USD",
+          "amount": "999999999.99",
+          "period": "YEAR"
+        }
+      ],
+      "expenses": [
+        {
+          "currency": "USD",
+          "amount": "999999999.99",
+          "period": "HOUR"
+        }
+      ],
+      "saving": {
+        "currency": "USD",
+        "amount": "999999999.99"
+      },
+      "expected": {
+        "incomeMetrics": [
+          "2737907.007"
+        ],
+        "expenseMetrics": [
+          "24038461538.2212"
+        ],
+        "INCOMES_AMOUNT": "2737907.007",
+        "EXPENSES_AMOUNT": "24038461538.2212",
+        "SAVING_AMOUNT": "999999999.99"
+      }
+    },
+    {
+      "id": "G05",
+      "rates": {
+        "EUR": "0.9",
+        "RUB": "75.0",
+        "USD": "1"
+      },
+      "incomes": [
+        {
+          "currency": "EUR",
+          "amount": "1234.5678",
+          "period": "QUARTER"
+        },
+        {
+          "currency": "RUB",
+          "amount": "1234.5678",
+          "period": "QUARTER"
+        }
+      ],
+      "expenses": [
+        {
+          "currency": "EUR",
+          "amount": "0.0001",
+          "period": "HOUR"
+        },
+        {
+          "currency": "RUB",
+          "amount": "0.0001",
+          "period": "MONTH"
+        }
+      ],
+      "saving": {
+        "currency": "RUB",
+        "amount": "75000"
+      },
+      "expected": {
+        "incomeMetrics": [
+          "15.0227",
+          "0.1798"
+        ],
+        "expenseMetrics": [
+          "0.0027",
+          "0"
+        ],
+        "INCOMES_AMOUNT": "15.2025",
+        "EXPENSES_AMOUNT": "0.0027",
+        "SAVING_AMOUNT": "997.5"
+      }
+    },
+    {
+      "id": "G06",
+      "rates": {
+        "EUR": "0.9",
+        "RUB": "75.0",
+        "USD": "1"
+      },
+      "incomes": [
+        {
+          "currency": "USD",
+          "amount": "0.0001",
+          "period": "HOUR"
+        }
+      ],
+      "expenses": [
+        {
+          "currency": "USD",
+          "amount": "0.0001",
+          "period": "HOUR"
+        }
+      ],
+      "saving": {
+        "currency": "USD",
+        "amount": "0.0001"
+      },
+      "expected": {
+        "incomeMetrics": [
+          "0.0024"
+        ],
+        "expenseMetrics": [
+          "0.0024"
+        ],
+        "INCOMES_AMOUNT": "0.0024",
+        "EXPENSES_AMOUNT": "0.0024",
+        "SAVING_AMOUNT": "0.0001"
+      }
+    },
+    {
+      "id": "G07",
+      "rates": {
+        "EUR": "0.9",
+        "RUB": "75.0",
+        "USD": "1"
+      },
+      "incomes": [
+        {
+          "currency": "EUR",
+          "amount": "100",
+          "period": "DAY"
+        },
+        {
+          "currency": "EUR",
+          "amount": "100",
+          "period": "DAY"
+        }
+      ],
+      "expenses": [
+        {
+          "currency": "RUB",
+          "amount": "100",
+          "period": "DAY"
+        }
+      ],
+      "saving": {
+        "currency": "USD",
+        "amount": "100"
+      },
+      "expected": {
+        "incomeMetrics": [
+          "111.11",
+          "111.11"
+        ],
+        "expenseMetrics": [
+          "1.33"
+        ],
+        "INCOMES_AMOUNT": "222.22",
+        "EXPENSES_AMOUNT": "1.33",
+        "SAVING_AMOUNT": "100"
+      }
+    },
+    {
+      "id": "G08",
+      "rates": {
+        "EUR": "0.9",
+        "RUB": "75.0",
+        "USD": "1"
+      },
+      "incomes": [
+        {
+          "currency": "RUB",
+          "amount": "1",
+          "period": "YEAR"
+        },
+        {
+          "currency": "EUR",
+          "amount": "1",
+          "period": "MONTH"
+        },
+        {
+          "currency": "USD",
+          "amount": "1",
+          "period": "QUARTER"
+        },
+        {
+          "currency": "EUR",
+          "amount": "1",
+          "period": "HOUR"
+        }
+      ],
+      "expenses": [
+        {
+          "currency": "RUB",
+          "amount": "1",
+          "period": "DAY"
+        },
+        {
+          "currency": "USD",
+          "amount": "1",
+          "period": "HOUR"
+        }
+      ],
+      "saving": {
+        "currency": "EUR",
+        "amount": "0.01"
+      },
+      "expected": {
+        "incomeMetrics": [
+          "0",
+          "0.0365",
+          "0.011",
+          "26.7091"
+        ],
+        "expenseMetrics": [
+          "0.0133",
+          "24.0385"
+        ],
+        "INCOMES_AMOUNT": "26.7566",
+        "EXPENSES_AMOUNT": "24.0518",
+        "SAVING_AMOUNT": "0.011111"
+      }
+    },
+    {
+      "id": "G09",
+      "rates": {
+        "EUR": "0.9",
+        "RUB": "75.0",
+        "USD": "1"
+      },
+      "incomes": [
+        {
+          "currency": "USD",
+          "amount": "12345.6789",
+          "period": "DAY"
+        }
+      ],
+      "expenses": [
+        {
+          "currency": "EUR",
+          "amount": "98765.4321",
+          "period": "YEAR"
+        }
+      ],
+      "saving": {
+        "currency": "RUB",
+        "amount": "1"
+      },
+      "expected": {
+        "incomeMetrics": [
+          "12345.6789"
+        ],
+        "expenseMetrics": [
+          "300.4532"
+        ],
+        "INCOMES_AMOUNT": "12345.6789",
+        "EXPENSES_AMOUNT": "300.4532",
+        "SAVING_AMOUNT": "0.0133"
+      }
+    },
+    {
+      "id": "G10",
+      "rates": {
+        "EUR": "0.9",
+        "RUB": "75.0",
+        "USD": "1"
+      },
+      "incomes": [
+        {
+          "currency": "EUR",
+          "amount": "0.005",
+          "period": "DAY"
+        },
+        {
+          "currency": "RUB",
+          "amount": "0.005",
+          "period": "DAY"
+        },
+        {
+          "currency": "USD",
+          "amount": "0.005",
+          "period": "DAY"
+        }
+      ],
+      "expenses": [
+        {
+          "currency": "EUR",
+          "amount": "0.005",
+          "period": "DAY"
+        }
+      ],
+      "saving": {
+        "currency": "USD",
+        "amount": "0.005"
+      },
+      "expected": {
+        "incomeMetrics": [
+          "0.0056",
+          "0.0001",
+          "0.005"
+        ],
+        "expenseMetrics": [
+          "0.0056"
+        ],
+        "INCOMES_AMOUNT": "0.0107",
+        "EXPENSES_AMOUNT": "0.0056",
+        "SAVING_AMOUNT": "0.005"
+      }
+    }
+  ],
+  "convertCases": [
+    {
+      "from": "EUR",
+      "to": "USD",
+      "amount": "100",
+      "expectedRatio": "1.1111",
+      "expected": "111.11"
+    },
+    {
+      "from": "RUB",
+      "to": "USD",
+      "amount": "75000",
+      "expectedRatio": "0.0133",
+      "expected": "997.5"
+    },
+    {
+      "from": "USD",
+      "to": "EUR",
+      "amount": "100",
+      "expectedRatio": "0.9",
+      "expected": "90"
+    },
+    {
+      "from": "EUR",
+      "to": "RUB",
+      "amount": "1",
+      "expectedRatio": "83.3333",
+      "expected": "83.3333"
+    },
+    {
+      "from": "USD",
+      "to": "USD",
+      "amount": "12345.6789",
+      "expectedRatio": "1",
+      "expected": "12345.6789"
+    },
+    {
+      "from": "RUB",
+      "to": "EUR",
+      "amount": "0.0001",
+      "expectedRatio": "0.012",
+      "expected": "0.0000012"
+    }
+  ]
+}

@@ -1,0 +1,65 @@
+server:
+  port: 8000
+  servlet:
+    context-path: /notifications
+
+spring:
+  data:
+    mongodb:
+      host: ${MONGO_HOST:notification-mongodb}
+      port: 27017
+      database: piggymetrics
+      username: user
+      password: ${MONGODB_PASSWORD:}
+  security:
+    oauth2:
+      client:
+        registration:
+          notification-service:
+            client-id: notification-service
+            client-secret: ${NOTIFICATION_SERVICE_PASSWORD:}
+            authorization-grant-type: client_credentials
+            scope: server
+            provider: piggymetrics
+        provider:
+          piggymetrics:
+            token-uri: http://auth-service:5000/uaa/oauth2/token
+      resourceserver:
+        jwt:
+          issuer-uri: http://auth-service:5000/uaa
+  mail:
+    host: smtp.gmail.com
+    port: 465
+    username: dev-user
+    password: dev-password
+    properties:
+      mail:
+        smtp:
+          auth: true
+          ssl:
+            enable: true
+
+piggymetrics:
+  feign:
+    client-registration-id: notification-service
+
+remind:
+  cron: 0 0 0 * * *
+  email:
+    subject: PiggyMetrics reminder
+    text: "Hey, {0}! We''ve missed you here on PiggyMetrics. It''s time to check your budget statistics.\r\n\r\nCheers,\r\nPiggyMetrics team"
+
+backup:
+  cron: 0 0 12 * * *
+  email:
+    subject: PiggyMetrics account backup
+    text: "Howdy, {0}. Your account backup is ready.\r\n\r\nCheers,\r\nPiggyMetrics team"
+    attachment: backup.json
+
+feign:
+  sentinel:
+    enabled: true
+
+# ---- marker proving this config is served by Nacos (unique top-level key) ----
+nacosConfigMarker:
+  source: nacos

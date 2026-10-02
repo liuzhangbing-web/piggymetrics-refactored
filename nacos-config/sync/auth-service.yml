@@ -1,0 +1,17 @@
+server:
+  port: 5000
+  servlet:
+    context-path: /uaa
+
+spring:
+  data:
+    mongodb:
+      host: ${MONGO_HOST:auth-mongodb}
+      port: 27017
+      database: piggymetrics
+      username: user
+      password: ${MONGODB_PASSWORD:}
+
+# ---- marker proving this config is served by Nacos (unique top-level key) ----
+nacosConfigMarker:
+  source: nacos

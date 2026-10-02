@@ -1,0 +1,36 @@
+server:
+  port: 4000
+
+spring:
+  cloud:
+    gateway:
+      server:
+        webflux:
+          routes:
+            - id: auth-service
+              uri: http://auth-service:5000
+              predicates:
+                - Path=/uaa/**
+            - id: account-service
+              uri: lb://account-service
+              predicates:
+                - Path=/accounts/**
+            - id: statistics-service
+              uri: lb://statistics-service
+              predicates:
+                - Path=/statistics/**
+            - id: notification-service
+              uri: lb://notification-service
+              predicates:
+                - Path=/notifications/**
+          httpclient:
+            connect-timeout: 20000
+            response-timeout: 20s
+    sentinel:
+      transport:
+        dashboard: ${SENTINEL_DASHBOARD:sentinel-dashboard:8080}
+      eager: true
+
+# ---- marker proving this config is served by Nacos (unique top-level key) ----
+nacosConfigMarker:
+  source: nacos
